@@ -108,6 +108,7 @@ def service_stop():
 @service_app.command("install")
 def service_install(
     elevate: bool = typer.Option(False, "--elevate", "-e", help="Auto-elevate to admin (opens new window)"),
+    for_user: str = typer.Option(None, "--for-user", hidden=True, help="Install for specific user (internal use)"),
 ):
     """Install the coordinator as a startup service (uses Task Scheduler on Windows)."""
     if sys.platform != "win32":
@@ -118,21 +119,29 @@ def service_install(
     python_exe = sys.executable
     pythonw_exe = python_exe.replace("python.exe", "pythonw.exe")
     
+    # Get the target user (current user, or the one passed via --for-user)
+    target_user = for_user or os.environ.get("USERNAME", "")
+    target_user_domain = os.environ.get("USERDOMAIN", "")
+    
     # Check for Windows Store Python
     if "WindowsApps" in python_exe:
         rprint("[yellow]Note: Windows Store Python detected. Using Task Scheduler.[/yellow]")
     
-    # If elevate requested, restart as admin
+    # If elevate requested, restart as admin but pass the CURRENT user
     if elevate:
-        rprint("[cyan]Requesting administrator privileges...[/cyan]")
+        current_user = os.environ.get("USERNAME", "")
+        rprint(f"[cyan]Requesting administrator privileges (for user: {current_user})...[/cyan]")
         subprocess.run([
             "powershell", "-Command",
-            f"Start-Process powershell -Verb RunAs -ArgumentList '-NoExit -ExecutionPolicy Bypass -Command \"& ''{python_exe}'' -m uvicoord.cli.main service install; Write-Host; Read-Host ''Press Enter to close''\"'"
+            f"Start-Process powershell -Verb RunAs -ArgumentList '-NoExit -ExecutionPolicy Bypass -Command \"& ''{python_exe}'' -m uvicoord.cli.main service install --for-user {current_user}; Write-Host; Read-Host ''Press Enter to close''\"'"
         ])
         return
     
     # Use pythonw if available (no console window)
     exe_to_use = pythonw_exe if Path(pythonw_exe).exists() else python_exe
+    
+    # Full user identifier for scheduled task
+    full_user = f"{target_user_domain}\\{target_user}" if target_user_domain and target_user else target_user
     
     # Create scheduled task via schtasks command
     task_xml = f'''<?xml version="1.0" encoding="UTF-16"?>
@@ -143,10 +152,12 @@ def service_install(
   <Triggers>
     <LogonTrigger>
       <Enabled>true</Enabled>
+      <UserId>{full_user}</UserId>
     </LogonTrigger>
   </Triggers>
   <Principals>
-    <Principal>
+    <Principal id="Author">
+      <UserId>{full_user}</UserId>
       <LogonType>InteractiveToken</LogonType>
       <RunLevel>LeastPrivilege</RunLevel>
     </Principal>
@@ -185,7 +196,8 @@ def service_install(
         xml_path = f.name
     
     try:
-        # Register the task
+        # Register the task for the target user
+        rprint(f"[dim]Installing for user: {full_user}[/dim]")
         result = subprocess.run(
             ["schtasks", "/Create", "/TN", "Uvicoord", "/XML", xml_path, "/F"],
             capture_output=True,
@@ -206,25 +218,80 @@ def service_install(
         
         # Add to PATH
         scripts_dir = Path(sys.executable).parent
-        current_path = os.environ.get("PATH", "")
-        if str(scripts_dir) not in current_path:
-            # Add to user PATH
-            import winreg
+        
+        # If installing for another user (via elevation), modify their registry directly
+        if for_user and for_user != os.environ.get("USERNAME", ""):
+            # Get the user's SID and modify their PATH via registry
             try:
-                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment", 0, winreg.KEY_READ | winreg.KEY_WRITE)
-                try:
-                    user_path, _ = winreg.QueryValueEx(key, "Path")
-                except FileNotFoundError:
-                    user_path = ""
+                # Get SID for the target user
+                sid_result = subprocess.run(
+                    ["powershell", "-Command", f"(New-Object System.Security.Principal.NTAccount('{for_user}')).Translate([System.Security.Principal.SecurityIdentifier]).Value"],
+                    capture_output=True,
+                    text=True,
+                )
+                user_sid = sid_result.stdout.strip()
                 
-                if str(scripts_dir) not in user_path:
-                    new_path = f"{user_path};{scripts_dir}" if user_path else str(scripts_dir)
-                    winreg.SetValueEx(key, "Path", 0, winreg.REG_EXPAND_SZ, new_path)
-                    rprint(f"[green]Added to user PATH: {scripts_dir}[/green]")
-                    rprint("[yellow]Restart your terminal for PATH changes to take effect.[/yellow]")
-                winreg.CloseKey(key)
+                if user_sid:
+                    # Read current PATH from user's registry
+                    path_result = subprocess.run(
+                        ["reg", "query", f"HKU\\{user_sid}\\Environment", "/v", "Path"],
+                        capture_output=True,
+                        text=True,
+                    )
+                    
+                    current_user_path = ""
+                    if path_result.returncode == 0:
+                        # Parse the PATH value from reg query output
+                        for line in path_result.stdout.split('\n'):
+                            if 'Path' in line and 'REG_' in line:
+                                parts = line.split('REG_EXPAND_SZ')
+                                if len(parts) > 1:
+                                    current_user_path = parts[1].strip()
+                                    break
+                                parts = line.split('REG_SZ')
+                                if len(parts) > 1:
+                                    current_user_path = parts[1].strip()
+                                    break
+                    
+                    if str(scripts_dir) not in current_user_path:
+                        new_path = f"{current_user_path};{scripts_dir}" if current_user_path else str(scripts_dir)
+                        # Set the new PATH
+                        set_result = subprocess.run(
+                            ["reg", "add", f"HKU\\{user_sid}\\Environment", "/v", "Path", "/t", "REG_EXPAND_SZ", "/d", new_path, "/f"],
+                            capture_output=True,
+                            text=True,
+                        )
+                        if set_result.returncode == 0:
+                            rprint(f"[green]Added to {for_user}'s PATH: {scripts_dir}[/green]")
+                            rprint("[yellow]Restart your terminal for PATH changes to take effect.[/yellow]")
+                        else:
+                            rprint(f"[yellow]Could not add to PATH: {set_result.stderr}[/yellow]")
+                    else:
+                        rprint(f"[dim]Already in {for_user}'s PATH[/dim]")
+                else:
+                    rprint(f"[yellow]Could not find SID for user {for_user}[/yellow]")
             except Exception as e:
                 rprint(f"[yellow]Could not add to PATH: {e}[/yellow]")
+        else:
+            # Add to current user's PATH
+            current_path = os.environ.get("PATH", "")
+            if str(scripts_dir) not in current_path:
+                import winreg
+                try:
+                    key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment", 0, winreg.KEY_READ | winreg.KEY_WRITE)
+                    try:
+                        user_path, _ = winreg.QueryValueEx(key, "Path")
+                    except FileNotFoundError:
+                        user_path = ""
+                    
+                    if str(scripts_dir) not in user_path:
+                        new_path = f"{user_path};{scripts_dir}" if user_path else str(scripts_dir)
+                        winreg.SetValueEx(key, "Path", 0, winreg.REG_EXPAND_SZ, new_path)
+                        rprint(f"[green]Added to user PATH: {scripts_dir}[/green]")
+                        rprint("[yellow]Restart your terminal for PATH changes to take effect.[/yellow]")
+                    winreg.CloseKey(key)
+                except Exception as e:
+                    rprint(f"[yellow]Could not add to PATH: {e}[/yellow]")
         
         # Ask if user wants to start now
         rprint("\nStart the service now? Run: [cyan]uvicoord service start[/cyan]")
