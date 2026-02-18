@@ -19,7 +19,7 @@ This section installs the **uvicoord coordinator service** itself - the central 
 
 ```powershell
 # Clone the repository
-git clone https://github.com/yourusername/uvicoord.git
+git clone https://github.com/EXTgithub99cd2/uvicoord.git
 cd uvicoord
 
 # Create virtual environment
