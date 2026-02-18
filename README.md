@@ -142,4 +142,4 @@ pip install -e .
 
 ## License
 
-MIT
+See license.md
