@@ -201,6 +201,13 @@ uvicoord service uninstall --elevate
 
 The startup task runs automatically when you log in to Windows - no console window, just runs in the background. The service will be available immediately after login.
 
+### What happens on boot
+
+1. **Windows starts** → Task Scheduler runs uvicoord for your user
+2. **Uvicoord starts** silently in the background (no console window)
+3. **Port 9000** becomes available immediately
+4. **Your apps** can request ports via `uvicoord run <app>` right away
+
 ## API Endpoints
 
 The coordinator exposes a REST API on port 9000:
