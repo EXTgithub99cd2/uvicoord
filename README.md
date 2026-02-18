@@ -276,4 +276,4 @@ Then the AI will know about uvicoord in all your projects.
 
 ## License
 
-MIT
+This software was generated with AI assistance. See [LICENSE](LICENSE) for the full disclaimer regarding copyright, patents, and usage terms.
