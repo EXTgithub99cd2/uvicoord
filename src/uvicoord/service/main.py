@@ -201,6 +201,18 @@ async def health_check() -> dict:
 
 def run_service():
     """Run the coordinator service."""
+    import sys
+    
+    # Detect if running without a console (pythonw.exe)
+    has_console = sys.stdout is not None and hasattr(sys.stdout, 'write')
+    try:
+        # Test if we can actually write to stdout
+        if has_console:
+            sys.stdout.write("")
+            sys.stdout.flush()
+    except (OSError, AttributeError, ValueError):
+        has_console = False
+    
     config_path = os.environ.get("UVICOORD_CONFIG")
     if config_path:
         pm = PortManager(Path(config_path))
@@ -208,9 +220,26 @@ def run_service():
         pm = PortManager()
     
     port = pm.config.coordinator_port
-    print(f"Starting Uvicoord service on port {port}...")
-    print(f"Config file: {pm.config_path}")
-    uvicorn.run(app, host="127.0.0.1", port=port)
+    
+    if has_console:
+        print(f"Starting Uvicoord service on port {port}...")
+        print(f"Config file: {pm.config_path}")
+        log_config = None  # Use default uvicorn logging
+    else:
+        # Running windowless - disable console logging
+        log_config = {
+            "version": 1,
+            "disable_existing_loggers": False,
+            "formatters": {},
+            "handlers": {},
+            "loggers": {
+                "uvicorn": {"handlers": [], "level": "WARNING"},
+                "uvicorn.error": {"handlers": [], "level": "WARNING"},
+                "uvicorn.access": {"handlers": [], "level": "WARNING"},
+            },
+        }
+    
+    uvicorn.run(app, host="127.0.0.1", port=port, log_config=log_config)
 
 
 if __name__ == "__main__":

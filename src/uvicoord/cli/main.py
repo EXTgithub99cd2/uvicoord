@@ -185,6 +185,7 @@ def service_install(
     <Exec>
       <Command>{exe_to_use}</Command>
       <Arguments>-m uvicoord.service.main</Arguments>
+      <WorkingDirectory>{Path(exe_to_use).parent.parent}</WorkingDirectory>
     </Exec>
   </Actions>
 </Task>'''
