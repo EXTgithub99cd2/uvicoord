@@ -4,6 +4,66 @@
 
 Tired of port conflicts when running multiple uvicorn services? Uvicoord manages port allocation centrally and launches your apps with the correct ports automatically.
 
+## Packages
+
+This is a monorepo with platform-specific packages:
+
+| Package | Description | Install |
+|---------|-------------|---------|
+| [core](core/) | Core library and cross-platform CLI | `pip install uvicoord` |
+| [windows](windows/) | Windows Task Scheduler integration | `pip install uvicoord-windows` |
+| [nixos](nixos/) | NixOS/systemd integration | `pip install uvicoord-nixos` or use flake |
+| [docker](docker/) | Docker/Podman deployment | `docker-compose up` |
+
+## Quick Start
+
+### Windows
+
+```powershell
+pip install uvicoord-windows
+
+# Install as startup service (auto-requests admin)
+uvicoord service install --elevate
+
+# Start the service
+uvicoord service start
+
+# Register and run an app
+uvicoord add myapi --path C:\projects\myapi --dedicated 8001
+uvicoord run myapi
+```
+
+### NixOS
+
+```nix
+# flake.nix
+{
+  inputs.uvicoord.url = "github:EXTgithub99cd2/uvicoord?dir=nixos/nix";
+  
+  outputs = { self, nixpkgs, uvicoord }: {
+    nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
+      modules = [
+        uvicoord.nixosModules.default
+        { services.uvicoord.enable = true; }
+      ];
+    };
+  };
+}
+```
+
+Or with pip:
+```bash
+pip install uvicoord-nixos
+uvicoord service install  # Shows systemd unit configuration
+```
+
+### Docker
+
+```bash
+cd docker
+docker-compose up -d
+```
+
 ## Features
 
 - **Centralized port management** - No more editing `.env` or `config.py` files
@@ -11,284 +71,75 @@ Tired of port conflicts when running multiple uvicorn services? Uvicoord manages
 - **Automatic venv activation** - Handles `.venv` activation automatically
 - **Instance tracking** - Track which apps are running on which ports
 - **Immediate cleanup** - Ports released when processes exit
-- **Windows service support** - Run coordinator on startup
+- **Platform-specific service management** - Native integration per OS
 
-## Installation (Uvicoord Service)
+## Commands
 
-This section installs the **uvicoord coordinator service** itself - the central service that manages ports for all your Python apps.
+All platforms share the same CLI interface:
 
-```powershell
-# Clone the repository
-git clone https://github.com/EXTgithub99cd2/uvicoord.git
-cd uvicoord
+```bash
+# Service management
+uvicoord service start        # Start the coordinator
+uvicoord service stop         # Stop the coordinator
+uvicoord service status       # Check status
+uvicoord service install      # Install as system service (platform-specific)
 
-# Create virtual environment
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+# App management
+uvicoord add <name> --path <dir> [port options]
+uvicoord remove <name>
+uvicoord list
+uvicoord info <name>
 
-# Install
-pip install -e .
-```
+# Running apps
+uvicoord run <name>
+uvicoord run <name> -i <instance-id>  # Multiple instances
 
-### Make `uvicoord` available globally
-
-**Option A: Install as Startup Task (recommended)**
-
-This automatically adds `uvicoord` to your PATH and starts the service on login:
-
-```powershell
-# Install startup task (auto-requests admin privileges)
-uvicoord service install --elevate
-
-# Start the service now
-uvicoord service start
-
-# Restart your terminal for PATH changes to take effect
-```
-
-**Option B: Manual PATH setup**
-
-If you don't want to install as a startup task:
-
-```powershell
-# Add to your user PATH (run once, persists across reboots)
-$scriptsPath = "C:\path\to\uvicoord\.venv\Scripts"
-[Environment]::SetEnvironmentVariable("Path", "$env:Path;$scriptsPath", "User")
-
-# Restart your terminal for PATH changes to take effect
-```
-
-## Quick Start
-
-```powershell
-# 1. Start the coordinator service (if not installed as Windows service)
-uvicoord service start
-
-# 2. Register an application
-uvicoord add my-api --path "C:\Users\lm\.ghub\my-api" --dedicated 8001
-
-# 3. Run the application
-uvicoord run my-api
-# => Activates venv, starts uvicorn on port 8001
-
-# 4. Check status
-uvicoord status
+# Utilities
+uvicoord status              # Show running instances
+uvicoord cleanup             # Remove dead instances
 ```
 
 ## Port Strategies
 
-### Dedicated Port
-Single fixed port, single instance only.
+| Strategy | Flag | Example | Use Case |
+|----------|------|---------|----------|
+| Dedicated | `--dedicated 8001` | Single fixed port | Main API |
+| Range | `--range 8010-8019` | Sequential ports | Workers |
+| List | `--ports 8010,8015,8020` | Specific ports | Microservices |
+| Stepped | `--step-start 8040 --step-size 5` | Spaced ports | Dev/staging |
+| Any | (default) | 8100-8199 | Temporary apps |
 
-```powershell
-uvicoord add my-api --path "C:\path\to\app" --dedicated 8001
+## Architecture
+
+```
+┌─────────────────┐     ┌─────────────────┐
+│   Your App 1    │────▶│                 │
+│   (port 8001)   │     │   Uvicoord      │
+├─────────────────┤     │   Coordinator   │
+│   Your App 2    │────▶│   (port 9000)   │
+│   (port 8002)   │     │                 │
+├─────────────────┤     │  - Port registry│
+│   Your App 3    │────▶│  - Config store │
+│   (port 8003)   │     │  - Health check │
+└─────────────────┘     └─────────────────┘
 ```
 
-### Port Range
-Multiple instances, sequential ports from a range.
+## Development
 
-```powershell
-uvicoord add workers --path "C:\path\to\workers" --range 8010-8019
+```bash
+# Clone
+git clone https://github.com/EXTgithub99cd2/uvicoord.git
+cd uvicoord
+
+# Install core in development mode
+cd core
+pip install -e .
+
+# Install platform package (Windows example)
+cd ../windows
+pip install -e .
 ```
-
-### Port List
-Explicit list of ports for instances.
-
-```powershell
-uvicoord add services --path "C:\path\to\services" --ports 8020,8025,8030
-```
-
-### Stepped Ports
-Ports at regular intervals (e.g., 8040, 8045, 8050...).
-
-```powershell
-uvicoord add micro --path "C:\path\to\micro" --step-start 8040 --step-size 5 --step-count 8
-```
-
-### Any (Default)
-Allocate from global default range (8100-8199).
-
-```powershell
-uvicoord add temp-app --path "C:\path\to\temp"
-```
-
-## CLI Commands
-
-### Service Management
-
-```powershell
-uvicoord service install --elevate  # Install as startup task (Windows)
-uvicoord service uninstall --elevate  # Remove startup task
-uvicoord service start              # Start coordinator (foreground)
-uvicoord service start -b           # Start in background
-uvicoord service status             # Check if service is running
-uvicoord service stop               # Stop service
-```
-
-### App Management
-
-```powershell
-uvicoord add <name> --path <dir> [options]   # Register app
-uvicoord remove <name>                        # Unregister app
-uvicoord list                                 # List all apps
-uvicoord info <name>                          # Show app details
-```
-
-### Running Apps
-
-```powershell
-uvicoord run <name>                          # Run with allocated port
-uvicoord run <name> --instance my-id         # Run with specific instance ID
-uvicoord run <name> --no-reload              # Run without hot reload
-```
-
-### Status & Cleanup
-
-```powershell
-uvicoord status                              # Show running instances
-uvicoord cleanup                             # Remove dead instances
-```
-
-### Help & Documentation
-
-```powershell
-uvicoord readme                              # Display full documentation
-uvicoord --help                              # Show CLI help
-```
-
-## Configuration
-
-Configuration is stored in `~/.uvicoord/config.json`:
-
-```json
-{
-  "coordinator_port": 9000,
-  "default_port_range": [8100, 8199],
-  "apps": {
-    "my-api": {
-      "path": "C:/Users/lm/.ghub/my-api",
-      "command": "uvicorn app.main:app --reload",
-      "port_strategy": "dedicated",
-      "port": 8001
-    }
-  }
-}
-```
-
-You can also set `UVICOORD_CONFIG` environment variable to use a different config file.
-
-## Windows Startup (Auto-start)
-
-To run the coordinator automatically when you log in to Windows:
-
-```powershell
-# Install as startup task (auto-requests admin privileges)
-# - Creates a Windows Task Scheduler task
-# - Adds uvicoord to your PATH
-uvicoord service install --elevate
-
-# Start the service now
-uvicoord service start
-
-# Check status
-uvicoord service status
-# => Startup task: Installed
-# => Service is running.
-
-# Uninstall startup task
-uvicoord service uninstall --elevate
-```
-
-The startup task runs automatically when you log in to Windows - no console window, just runs in the background. The service will be available immediately after login.
-
-### What happens on boot
-
-1. **Windows starts** → Task Scheduler runs uvicoord for your user
-2. **Uvicoord starts** silently in the background (no console window)
-3. **Port 9000** becomes available immediately
-4. **Your apps** can request ports via `uvicoord run <app>` right away
-
-## API Endpoints
-
-The coordinator exposes a REST API on port 9000:
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/health` | GET | Health check |
-| `/apps` | GET | List registered apps |
-| `/apps` | POST | Register new app |
-| `/apps/{name}` | GET | Get app details |
-| `/apps/{name}` | DELETE | Remove app |
-| `/port/allocate` | POST | Allocate a port |
-| `/port/release` | POST | Release a port |
-| `/instances` | GET | List active instances |
-| `/instances/{app_name}` | GET | List app instances |
-| `/instances/cleanup` | POST | Clean dead instances |
-| `/config` | GET | Get config |
-| `/config/reload` | POST | Reload config |
-
-## Example Workflow
-
-```powershell
-# Terminal 1: Start coordinator
-uvicoord service start
-
-# Terminal 2: Register and run your main API
-uvicoord add main-api --path "C:\dev\main-api" --dedicated 8001
-uvicoord run main-api
-# => Running on http://127.0.0.1:8001
-
-# Terminal 3: Run multiple worker instances
-uvicoord add workers --path "C:\dev\workers" --range 8010-8019
-uvicoord run workers
-# => Running on http://127.0.0.1:8010
-
-# Terminal 4: Another worker instance
-uvicoord run workers
-# => Running on http://127.0.0.1:8011
-
-# Check what's running
-uvicoord status
-# ┌──────────┬─────────────┬──────┬───────┬─────────────────────┐
-# │ App      │ Instance ID │ Port │ PID   │ Started             │
-# ├──────────┼─────────────┼──────┼───────┼─────────────────────┤
-# │ main-api │ a1b2c3d4    │ 8001 │ 12345 │ 2026-02-18T10:00:00 │
-# │ workers  │ e5f6g7h8    │ 8010 │ 12346 │ 2026-02-18T10:01:00 │
-# │ workers  │ i9j0k1l2    │ 8011 │ 12347 │ 2026-02-18T10:02:00 │
-# └──────────┴─────────────┴──────┴───────┴─────────────────────┘
-```
-
-## GitHub Copilot Integration
-
-Uvicoord includes an instruction file for GitHub Copilot / Claude AI assistants at `.github/copilot-instructions.md`. This teaches AI assistants to create new apps without hardcoded ports and to use uvicoord for port management.
-
-### Automatic (this workspace)
-
-VS Code Copilot automatically reads `.github/copilot-instructions.md` when working in this workspace.
-
-### Use in other projects
-
-Add to `.vscode/settings.json` in any project:
-
-```json
-{
-  "github.copilot.chat.codeGeneration.instructions": [
-    { "file": "C:/Users/lm/.ghub/uvicorn-proxy/.github/copilot-instructions.md" }
-  ]
-}
-```
-
-### Global availability
-
-Copy to your VS Code user prompts folder:
-
-```powershell
-Copy-Item "C:\Users\lm\.ghub\uvicorn-proxy\.github\copilot-instructions.md" `
-          "$env:APPDATA\Code\User\prompts\uvicoord.instructions.md"
-```
-
-Then the AI will know about uvicoord in all your projects.
 
 ## License
 
-This software was generated with AI assistance. See [LICENSE](LICENSE) for the full disclaimer regarding copyright, patents, and usage terms.
+MIT

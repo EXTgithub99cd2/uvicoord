@@ -1,0 +1,23 @@
+version: "3.8"
+
+services:
+  uvicoord:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: uvicoord:latest
+    container_name: uvicoord
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    volumes:
+      - uvicoord-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  uvicoord-data:

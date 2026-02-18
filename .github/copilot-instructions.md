@@ -200,7 +200,12 @@ uvicoord readme              # Show full documentation
 
 ## Important Notes
 
-1. **Uvicoord service must be running** - Start with `uvicoord service start` or install startup task with `uvicoord service install --elevate`
-2. **Ports are released immediately** when process exits (Ctrl+C or crash)
-3. **Config is stored** at `~/.uvicoord/config.json`
-4. **Coordinator runs on port 9000** by default
+1. **Install the right package for your platform:**
+   - Windows: `pip install uvicoord-windows`
+   - NixOS: `pip install uvicoord-nixos` or use the Nix flake
+   - Core only: `pip install uvicoord`
+2. **Uvicoord service must be running** - Start with `uvicoord service start` or install startup task with `uvicoord service install --elevate`
+3. **Ports are released immediately** when process exits (Ctrl+C or crash)
+4. **Config is stored** at `~/.uvicoord/config.json`
+5. **Coordinator runs on port 9000** by default
+
