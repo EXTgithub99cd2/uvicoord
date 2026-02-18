@@ -164,6 +164,7 @@ uvicoord run workers --instance special  # Gets 8012, remembers "special"
 
 ```powershell
 # Service
+uvicoord service install --elevate  # Install startup task (Windows)
 uvicoord service start       # Start coordinator
 uvicoord service status      # Check if running
 
@@ -199,7 +200,7 @@ uvicoord readme              # Show full documentation
 
 ## Important Notes
 
-1. **Uvicoord service must be running** - Start with `uvicoord service start` or install as Windows service
+1. **Uvicoord service must be running** - Start with `uvicoord service start` or install startup task with `uvicoord service install --elevate`
 2. **Ports are released immediately** when process exits (Ctrl+C or crash)
 3. **Config is stored** at `~/.uvicoord/config.json`
 4. **Coordinator runs on port 9000** by default

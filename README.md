@@ -32,25 +32,27 @@ pip install -e .
 
 ### Make `uvicoord` available globally
 
-**Option A: Install as Windows Service (recommended)**
+**Option A: Install as Startup Task (recommended)**
 
-This automatically adds `uvicoord` to system PATH and starts on boot:
+This automatically adds `uvicoord` to your PATH and starts the service on login:
 
 ```powershell
-# Run as Administrator
-python -m uvicoord.service.windows_service install
-python -m uvicoord.service.windows_service start
+# Install startup task (auto-requests admin privileges)
+uvicoord service install --elevate
+
+# Start the service now
+uvicoord service start
 
 # Restart your terminal for PATH changes to take effect
 ```
 
 **Option B: Manual PATH setup**
 
-If you don't want to install as a Windows service:
+If you don't want to install as a startup task:
 
 ```powershell
 # Add to your user PATH (run once, persists across reboots)
-$scriptsPath = "C:\Users\lm\.ghub\uvicorn-proxy\.venv\Scripts"
+$scriptsPath = "C:\path\to\uvicoord\.venv\Scripts"
 [Environment]::SetEnvironmentVariable("Path", "$env:Path;$scriptsPath", "User")
 
 # Restart your terminal for PATH changes to take effect
@@ -115,10 +117,12 @@ uvicoord add temp-app --path "C:\path\to\temp"
 ### Service Management
 
 ```powershell
-uvicoord service start          # Start coordinator (foreground)
-uvicoord service start -b       # Start in background
-uvicoord service status         # Check if service is running
-uvicoord service stop           # Stop service
+uvicoord service install --elevate  # Install as startup task (Windows)
+uvicoord service uninstall          # Remove startup task
+uvicoord service start              # Start coordinator (foreground)
+uvicoord service start -b           # Start in background
+uvicoord service status             # Check if service is running
+uvicoord service stop               # Stop service
 ```
 
 ### App Management
@@ -173,25 +177,29 @@ Configuration is stored in `~/.uvicoord/config.json`:
 
 You can also set `UVICOORD_CONFIG` environment variable to use a different config file.
 
-## Windows Service (Auto-start)
+## Windows Startup (Auto-start)
 
-To run the coordinator automatically on Windows startup. This also adds `uvicoord` to your system PATH automatically.
+To run the coordinator automatically when you log in to Windows:
 
 ```powershell
-# Install as Windows service (requires admin)
-# - Installs the service with auto-start
-# - Adds uvicoord to system PATH
-python -m uvicoord.service.windows_service install
+# Install as startup task (auto-requests admin privileges)
+# - Creates a Windows Task Scheduler task
+# - Adds uvicoord to your PATH
+uvicoord service install --elevate
 
-# Start the service
-python -m uvicoord.service.windows_service start
+# Start the service now
+uvicoord service start
 
-# Stop the service
-python -m uvicoord.service.windows_service stop
+# Check status
+uvicoord service status
+# => Startup task: Installed
+# => Service is running.
 
-# Uninstall
-python -m uvicoord.service.windows_service remove
+# Uninstall startup task
+uvicoord service uninstall --elevate
 ```
+
+The startup task runs when you log in and starts the coordinator automatically.
 
 ## API Endpoints
 
