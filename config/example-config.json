@@ -1,0 +1,34 @@
+{
+  "coordinator_port": 9000,
+  "default_port_range": [8100, 8199],
+  "apps": {
+    "example-api": {
+      "path": "C:/Users/lm/.ghub/example-api",
+      "command": "uvicorn app.main:app --reload",
+      "port_strategy": "dedicated",
+      "port": 8001
+    },
+    "worker-service": {
+      "path": "C:/Users/lm/.ghub/worker-service",
+      "command": "uvicorn worker.main:app --reload",
+      "port_strategy": "range",
+      "port_range": [8010, 8019]
+    },
+    "data-processor": {
+      "path": "C:/Users/lm/.ghub/data-processor",
+      "command": "uvicorn processor.main:app --reload",
+      "port_strategy": "list",
+      "ports": [8020, 8025, 8030, 8035]
+    },
+    "microservice": {
+      "path": "C:/Users/lm/.ghub/microservice",
+      "command": "uvicorn service.main:app --reload",
+      "port_strategy": "stepped",
+      "port_step": {
+        "start": 8040,
+        "step": 5,
+        "count": 8
+      }
+    }
+  }
+}
