@@ -118,7 +118,7 @@ uvicoord add temp-app --path "C:\path\to\temp"
 
 ```powershell
 uvicoord service install --elevate  # Install as startup task (Windows)
-uvicoord service uninstall          # Remove startup task
+uvicoord service uninstall --elevate  # Remove startup task
 uvicoord service start              # Start coordinator (foreground)
 uvicoord service start -b           # Start in background
 uvicoord service status             # Check if service is running
@@ -199,7 +199,7 @@ uvicoord service status
 uvicoord service uninstall --elevate
 ```
 
-The startup task runs when you log in and starts the coordinator automatically.
+The startup task runs automatically when you log in to Windows - no console window, just runs in the background. The service will be available immediately after login.
 
 ## API Endpoints
 

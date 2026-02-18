@@ -301,11 +301,24 @@ def service_install(
 
 
 @service_app.command("uninstall")
-def service_uninstall():
+def service_uninstall(
+    elevate: bool = typer.Option(False, "--elevate", "-e", help="Auto-elevate to admin (opens new window)"),
+):
     """Uninstall the coordinator startup service."""
     if sys.platform != "win32":
         rprint("[red]Service uninstallation is only supported on Windows.[/red]")
         raise typer.Exit(1)
+    
+    python_exe = sys.executable
+    
+    # If elevate requested, restart as admin
+    if elevate:
+        rprint("[cyan]Requesting administrator privileges...[/cyan]")
+        subprocess.run([
+            "powershell", "-Command",
+            f"Start-Process powershell -Verb RunAs -ArgumentList '-NoExit -ExecutionPolicy Bypass -Command \"& ''{python_exe}'' -m uvicoord.cli.main service uninstall; Write-Host; Read-Host ''Press Enter to close''\"'"
+        ])
+        return
     
     # Stop if running
     subprocess.run(["schtasks", "/End", "/TN", "Uvicoord"], capture_output=True)
@@ -319,6 +332,11 @@ def service_uninstall():
     
     if result.returncode == 0:
         rprint("[green]Uvicoord startup task removed.[/green]")
+    elif "Access is denied" in result.stderr or "access is denied" in result.stderr.lower():
+        rprint("[red]Error: Administrator privileges required.[/red]")
+        rprint("\nOptions:")
+        rprint("  1. Run with --elevate flag: [cyan]uvicoord service uninstall --elevate[/cyan]")
+        rprint("  2. Run terminal as Administrator")
     else:
         rprint(f"[yellow]Could not remove task (may not exist): {result.stderr}[/yellow]")
 
