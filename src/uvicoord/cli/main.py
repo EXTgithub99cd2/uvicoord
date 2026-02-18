@@ -91,14 +91,187 @@ def service_start(
 @service_app.command("stop")
 def service_stop():
     """Stop the coordinator service."""
-    # This is tricky without proper service management
-    # For now, just inform user
+    if sys.platform == "win32":
+        # Try to stop via Task Scheduler first
+        result = subprocess.run(
+            ["schtasks", "/End", "/TN", "Uvicoord"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            rprint("[green]Service stopped.[/green]")
+            return
+    
     rprint("[yellow]To stop the service, use Task Manager or Ctrl+C if running in foreground.[/yellow]")
+
+
+@service_app.command("install")
+def service_install(
+    elevate: bool = typer.Option(False, "--elevate", "-e", help="Auto-elevate to admin (opens new window)"),
+):
+    """Install the coordinator as a startup service (uses Task Scheduler on Windows)."""
+    if sys.platform != "win32":
+        rprint("[red]Service installation is only supported on Windows.[/red]")
+        rprint("On Linux/macOS, use systemd or launchd instead.")
+        raise typer.Exit(1)
+    
+    python_exe = sys.executable
+    pythonw_exe = python_exe.replace("python.exe", "pythonw.exe")
+    
+    # Check for Windows Store Python
+    if "WindowsApps" in python_exe:
+        rprint("[yellow]Note: Windows Store Python detected. Using Task Scheduler.[/yellow]")
+    
+    # If elevate requested, restart as admin
+    if elevate:
+        rprint("[cyan]Requesting administrator privileges...[/cyan]")
+        subprocess.run([
+            "powershell", "-Command",
+            f"Start-Process powershell -Verb RunAs -ArgumentList '-NoExit -ExecutionPolicy Bypass -Command \"& ''{python_exe}'' -m uvicoord.cli.main service install; Write-Host; Read-Host ''Press Enter to close''\"'"
+        ])
+        return
+    
+    # Use pythonw if available (no console window)
+    exe_to_use = pythonw_exe if Path(pythonw_exe).exists() else python_exe
+    
+    # Create scheduled task via schtasks command
+    task_xml = f'''<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>Uvicorn Coordinator - Port registry for Python web applications</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>7</Priority>
+    <RestartOnFailure>
+      <Interval>PT1M</Interval>
+      <Count>3</Count>
+    </RestartOnFailure>
+  </Settings>
+  <Actions>
+    <Exec>
+      <Command>{exe_to_use}</Command>
+      <Arguments>-m uvicoord.service.main</Arguments>
+    </Exec>
+  </Actions>
+</Task>'''
+    
+    # Write XML to temp file
+    import tempfile
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.xml', delete=False, encoding='utf-16') as f:
+        f.write(task_xml)
+        xml_path = f.name
+    
+    try:
+        # Register the task
+        result = subprocess.run(
+            ["schtasks", "/Create", "/TN", "Uvicoord", "/XML", xml_path, "/F"],
+            capture_output=True,
+            text=True,
+        )
+        
+        if result.returncode != 0:
+            if "Access is denied" in result.stderr or "access is denied" in result.stderr.lower():
+                rprint("[red]Error: Administrator privileges required.[/red]")
+                rprint("\nOptions:")
+                rprint("  1. Run with --elevate flag: [cyan]uvicoord service install --elevate[/cyan]")
+                rprint("  2. Run terminal as Administrator")
+            else:
+                rprint(f"[red]Error installing service: {result.stderr}[/red]")
+            raise typer.Exit(1)
+        
+        rprint("[green]Uvicoord installed as startup task.[/green]")
+        
+        # Add to PATH
+        scripts_dir = Path(sys.executable).parent
+        current_path = os.environ.get("PATH", "")
+        if str(scripts_dir) not in current_path:
+            # Add to user PATH
+            import winreg
+            try:
+                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment", 0, winreg.KEY_READ | winreg.KEY_WRITE)
+                try:
+                    user_path, _ = winreg.QueryValueEx(key, "Path")
+                except FileNotFoundError:
+                    user_path = ""
+                
+                if str(scripts_dir) not in user_path:
+                    new_path = f"{user_path};{scripts_dir}" if user_path else str(scripts_dir)
+                    winreg.SetValueEx(key, "Path", 0, winreg.REG_EXPAND_SZ, new_path)
+                    rprint(f"[green]Added to user PATH: {scripts_dir}[/green]")
+                    rprint("[yellow]Restart your terminal for PATH changes to take effect.[/yellow]")
+                winreg.CloseKey(key)
+            except Exception as e:
+                rprint(f"[yellow]Could not add to PATH: {e}[/yellow]")
+        
+        # Ask if user wants to start now
+        rprint("\nStart the service now? Run: [cyan]uvicoord service start[/cyan]")
+        
+    finally:
+        Path(xml_path).unlink(missing_ok=True)
+
+
+@service_app.command("uninstall")
+def service_uninstall():
+    """Uninstall the coordinator startup service."""
+    if sys.platform != "win32":
+        rprint("[red]Service uninstallation is only supported on Windows.[/red]")
+        raise typer.Exit(1)
+    
+    # Stop if running
+    subprocess.run(["schtasks", "/End", "/TN", "Uvicoord"], capture_output=True)
+    
+    # Delete the task
+    result = subprocess.run(
+        ["schtasks", "/Delete", "/TN", "Uvicoord", "/F"],
+        capture_output=True,
+        text=True,
+    )
+    
+    if result.returncode == 0:
+        rprint("[green]Uvicoord startup task removed.[/green]")
+    else:
+        rprint(f"[yellow]Could not remove task (may not exist): {result.stderr}[/yellow]")
 
 
 @service_app.command("status")
 def service_status():
     """Check service status."""
+    # Check if startup task is installed (Windows)
+    if sys.platform == "win32":
+        result = subprocess.run(
+            ["schtasks", "/Query", "/TN", "Uvicoord"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            rprint("[green]Startup task: Installed[/green]")
+        else:
+            rprint("[dim]Startup task: Not installed[/dim]")
+    
+    # Check if service is running
     if check_service():
         rprint("[green]Service is running.[/green]")
         with httpx.Client() as client:
