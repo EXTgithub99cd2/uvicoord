@@ -145,6 +145,13 @@ uvicoord status                              # Show running instances
 uvicoord cleanup                             # Remove dead instances
 ```
 
+### Help & Documentation
+
+```powershell
+uvicoord readme                              # Display full documentation
+uvicoord --help                              # Show CLI help
+```
+
 ## Configuration
 
 Configuration is stored in `~/.uvicoord/config.json`:
